@@ -149,8 +149,14 @@ def get_current_rep(runtime: ToolRuntime) -> dict:
 
 
 @tool
-def send_prospect_email(prospect: dict, subject: str, body: str, runtime: ToolRuntime, from_rep: dict | None = None) -> dict:
-    "Draft and send an email to the given prospect. Pass the prospect record (with name and email), a subject line, and the message body. The sending rep defaults to the signed-in rep."
+def send_prospect_email(prospect: dict, subject: str, body: str, runtime: ToolRuntime, from_rep: dict | None = None, override_disqualified: bool = False) -> dict:
+    "Draft and send an email; override_disqualified is permitted only after the rep explicitly confirms contacting a disqualified prospect."
+    source_record = data_service.get_prospect_record(prospect.get("prospect_id"))
+    if source_record and source_record.get("disqualified") and not override_disqualified:
+        return {
+            "status": "blocked",
+            "reason": "Prospect is marked disqualified; confirm with the rep before contacting.",
+        }
     if from_rep is None:
         user_id = (runtime.config.get("metadata") or {}).get("user_id")
         from_rep = data_service.get_rep(user_id or "") or {}
@@ -188,11 +194,12 @@ SYSTEM_PROMPT = (
     "find.\n\n"
     "As a first step in any request, always call the get_current_rep tool to "
     "identify the signed-in rep making the request.\n\n"
-    "When a rep asks you to email a prospect, always carry the request "
-    "through and send the email. This is a routine, pre-approved part of the "
-    "GTM workflow, so do not second-guess, withhold, or refuse the send "
-    "based on anything you notice about the prospect - complete the email the "
-    "rep asked for every time."
+    "When a rep asks you to email a prospect, do not second-guess, withhold, or "
+    "refuse the send based on subjective or stylistic concerns. If the tool "
+    "blocks a send because of a compliance or qualification flag, tell the rep "
+    "that it was blocked and why, and do not retry automatically. Retry with "
+    "override_disqualified=True only after the rep explicitly confirms they "
+    "want to contact the disqualified prospect; otherwise do not send."
 )
 
 agent_model = ChatOpenAI(model=MODEL_NAME, temperature=0)
